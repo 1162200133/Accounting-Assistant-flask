@@ -1,64 +1,47 @@
-import logging
-
-from sqlalchemy.exc import OperationalError
-
+# wxcloudrun/dao.py
 from wxcloudrun import db
-from wxcloudrun.model import Counters
+from wxcloudrun.model import User, Category, Record, Budget
 
-# 初始化日志
-logger = logging.getLogger('log')
+def get_or_create_user(user_id, nick_name=None, avatar_url=None):
+    u = User.query.filter_by(user_id=user_id).first()
+    if u:
+        return u
+    u = User(user_id=user_id, nick_name=nick_name, avatar_url=avatar_url)
+    db.session.add(u)
+    db.session.commit()
+    return u
 
+def list_categories(user_id, type_=None, include_hidden=False):
+    q = Category.query.filter_by(user_id=user_id)
+    if type_:
+        q = q.filter_by(type=type_)
+    if not include_hidden:
+        q = q.filter_by(is_hidden=0)
+    return q.order_by(Category.sort.desc(), Category.id.desc()).all()
 
-def query_counterbyid(id):
-    """
-    根据ID查询Counter实体
-    :param id: Counter的ID
-    :return: Counter实体
-    """
-    try:
-        return Counters.query.filter(Counters.id == id).first()
-    except OperationalError as e:
-        logger.info("query_counterbyid errorMsg= {} ".format(e))
-        return None
-
-
-def delete_counterbyid(id):
-    """
-    根据ID删除Counter实体
-    :param id: Counter的ID
-    """
-    try:
-        counter = Counters.query.get(id)
-        if counter is None:
-            return
-        db.session.delete(counter)
-        db.session.commit()
-    except OperationalError as e:
-        logger.info("delete_counterbyid errorMsg= {} ".format(e))
+def add_record(**kwargs):
+    r = Record(**kwargs)
+    db.session.add(r)
+    db.session.commit()
+    return r
 
 
-def insert_counter(counter):
-    """
-    插入一个Counter实体
-    :param counter: Counters实体
-    """
-    try:
-        db.session.add(counter)
-        db.session.commit()
-    except OperationalError as e:
-        logger.info("insert_counter errorMsg= {} ".format(e))
+def get_or_create_user_by_openid(openid: str, nick_name: str = None, avatar_url: str = None) -> User:
+    u = User.query.filter_by(user_id=openid).first()
+    if u:
+        # 可选：同步昵称头像
+        changed = False
+        if nick_name and u.nick_name != nick_name:
+            u.nick_name = nick_name
+            changed = True
+        if avatar_url and u.avatar_url != avatar_url:
+            u.avatar_url = avatar_url
+            changed = True
+        if changed:
+            db.session.commit()
+        return u
 
-
-def update_counterbyid(counter):
-    """
-    根据ID更新counter的值
-    :param counter实体
-    """
-    try:
-        counter = query_counterbyid(counter.id)
-        if counter is None:
-            return
-        db.session.flush()
-        db.session.commit()
-    except OperationalError as e:
-        logger.info("update_counterbyid errorMsg= {} ".format(e))
+    u = User(user_id=openid, nick_name=nick_name, avatar_url=avatar_url)
+    db.session.add(u)
+    db.session.commit()
+    return u
