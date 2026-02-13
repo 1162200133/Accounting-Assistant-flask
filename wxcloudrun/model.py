@@ -10,6 +10,8 @@ class User(db.Model):
     avatar_url = db.Column(db.String(255))
     currency = db.Column(db.String(10), default='CNY', nullable=False)
     status = db.Column(db.SmallInteger, default=1, nullable=False)
+    phone = db.Column(db.String(20), nullable=True, unique=True, comment='手机号')
+    email = db.Column(db.String(100), nullable=True, unique=True, comment='邮箱')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -20,7 +22,7 @@ class Category(db.Model):
     type = db.Column(db.Enum('income', 'expense'), nullable=False)
     name = db.Column(db.String(30), nullable=False)
     icon = db.Column(db.String(50))
-    note_color = db.Column(db.String(20))
+    color  = db.Column(db.String(20))
     is_hidden = db.Column(db.SmallInteger, default=0, nullable=False)
     sort = db.Column(db.Integer, default=0, nullable=False)
     is_preset = db.Column(db.SmallInteger, default=0, nullable=False)

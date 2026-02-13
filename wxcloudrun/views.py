@@ -4,44 +4,149 @@ import requests
 from flask import request
 from run import app
 from wxcloudrun.response import make_succ_response, make_err_response, make_login_response
-from wxcloudrun.dao import get_or_create_user, list_categories, add_record
-from wxcloudrun.dao import get_or_create_user_by_openid
 from wxcloudrun.jwt_utils import create_token,decode_token
 from wxcloudrun.model import User 
+
+from wxcloudrun.dao import (
+    get_or_create_user_by_openid,
+    list_categories,
+    add_record,
+    list_records,
+    month_summary,
+    seed_default_categories
+)
+
 
 WX_APPID = os.getenv('WX_APPID', 'wxf2ad56f65cb79fee')
 WX_SECRET = os.getenv('WX_SECRET', '8eda8e66f289fe0fc3dbd36919b3fb28')
 
+def _get_token():
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+
+    t = request.headers.get("token")  # 兼容你 app.js 可能用 token 头
+    if t:
+        return t.strip()
+
+    t = request.args.get("token")
+    if t:
+        return t.strip()
+
+    return ""
+
+def _current_user_id():
+    token = _get_token()
+    if not token:
+        return None, "未登录：缺少token"
+    try:
+        payload = decode_token(token)
+    except Exception:
+        return None, "token无效或已过期"
+    uid = payload.get("user_id")
+    if not uid:
+        return None, "token缺少user_id"
+    return uid, None
+
+
 @app.route('/api/categories', methods=['GET'])
 def categories_get():
-    user_id = request.args.get('user_id')
+    # ✅ 从 token 取当前用户
+    token = _get_token()
+    if not token:
+        return make_err_response("未登录：缺少token")
+
+    try:
+        payload = decode_token(token)
+    except Exception:
+        return make_err_response("token无效或已过期")
+
+    user_id = payload.get("user_id")
     if not user_id:
-        return make_err_response('缺少 user_id')
-    type_ = request.args.get('type')  # income/expense/None
+        return make_err_response("token缺少user_id")
+
+    # 参数：income/expense/None
+    type_ = request.args.get('type')
+
+    # ✅ 查分类
     items = list_categories(user_id, type_=type_, include_hidden=False)
+
+    # ✅ 如果没有分类，自动补齐（老用户也能恢复）
+    if not items:
+        seed_default_categories(user_id)
+        items = list_categories(user_id, type_=type_, include_hidden=False)
+
     data = [{
-        'id': c.id, 'type': c.type, 'name': c.name, 'icon': c.icon,
-        'is_hidden': c.is_hidden, 'sort': c.sort
+        'id': c.id,
+        'type': c.type,
+        'name': c.name,
+        'icon': c.icon,
+        'color': getattr(c, 'color', None),
+        'is_hidden': c.is_hidden,
+        'sort': c.sort
     } for c in items]
+
     return make_succ_response(data)
+
 
 @app.route('/api/records', methods=['POST'])
 def records_add():
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
     params = request.get_json() or {}
-    required = ['user_id', 'type', 'amount_cent', 'category_id', 'occur_at']
+    required = ['type', 'amount_cent', 'category_id', 'occur_at']
     for k in required:
         if k not in params:
             return make_err_response(f'缺少 {k}')
+
     r = add_record(
-        user_id=params['user_id'],
+        user_id=user_id,
         type=params['type'],
         amount_cent=int(params['amount_cent']),
         category_id=int(params['category_id']),
         note=params.get('note'),
-        occur_at=params['occur_at'],  # 你可以前端传 ISO 字符串，后端再 parse
+        occur_at=params['occur_at'],
         category_name_snapshot=params.get('category_name_snapshot'),
     )
     return make_succ_response({'id': r.id})
+
+@app.route('/api/records', methods=['GET'])
+def records_list():
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    month = request.args.get("month")  # "YYYY-MM"
+    page = int(request.args.get("page", "1"))
+    page_size = int(request.args.get("page_size", "20"))
+
+    items, total = list_records(user_id, month=month, page=page, page_size=page_size)
+    data = []
+    for r in items:
+        data.append({
+            "id": r.id,
+            "type": r.type,
+            "amount_cent": r.amount_cent,
+            "category_id": r.category_id,
+            "category_name_snapshot": r.category_name_snapshot,
+            "note": r.note,
+            "occur_at": r.occur_at.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+    return make_succ_response({"items": data, "total": total, "page": page, "page_size": page_size})
+
+@app.route('/api/stats/month', methods=['GET'])
+def stats_month():
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    month = request.args.get("month")
+    if not month:
+        return make_err_response("缺少 month，格式 YYYY-MM")
+
+    return make_succ_response(month_summary(user_id, month))
 
 @app.route('/api/wxlogin', methods=['POST'])
 def wxlogin():
@@ -89,20 +194,6 @@ def wxlogin():
         "login_type": "wx"
     }, msg='登录成功')
     
-def _get_token():
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:].strip()
-
-    t = request.headers.get("token")  # 兼容你 app.js 可能用 token 头
-    if t:
-        return t.strip()
-
-    t = request.args.get("token")
-    if t:
-        return t.strip()
-
-    return ""
 
 @app.route('/api/whoami', methods=['GET'])
 def whoami():

@@ -1,35 +1,12 @@
 # wxcloudrun/dao.py
+from datetime import datetime
 from wxcloudrun import db
-from wxcloudrun.model import User, Category, Record, Budget
+from wxcloudrun.model import User, Category, Record
 
-def get_or_create_user(user_id, nick_name=None, avatar_url=None):
-    u = User.query.filter_by(user_id=user_id).first()
-    if u:
-        return u
-    u = User(user_id=user_id, nick_name=nick_name, avatar_url=avatar_url)
-    db.session.add(u)
-    db.session.commit()
-    return u
-
-def list_categories(user_id, type_=None, include_hidden=False):
-    q = Category.query.filter_by(user_id=user_id)
-    if type_:
-        q = q.filter_by(type=type_)
-    if not include_hidden:
-        q = q.filter_by(is_hidden=0)
-    return q.order_by(Category.sort.desc(), Category.id.desc()).all()
-
-def add_record(**kwargs):
-    r = Record(**kwargs)
-    db.session.add(r)
-    db.session.commit()
-    return r
-
-
-def get_or_create_user_by_openid(openid: str, nick_name: str = None, avatar_url: str = None) -> User:
+def get_or_create_user_by_openid(openid: str, nick_name=None, avatar_url=None) -> User:
     u = User.query.filter_by(user_id=openid).first()
     if u:
-        # 可选：同步昵称头像
+        # 可选：更新昵称头像
         changed = False
         if nick_name and u.nick_name != nick_name:
             u.nick_name = nick_name
@@ -39,9 +16,127 @@ def get_or_create_user_by_openid(openid: str, nick_name: str = None, avatar_url:
             changed = True
         if changed:
             db.session.commit()
+
+        # ✅ 关键：老用户如果没有分类，也补一份默认分类
+        has_any = Category.query.filter_by(user_id=openid).first()
+        if not has_any:
+            seed_default_categories(openid)
+
         return u
 
+    # 新用户创建
     u = User(user_id=openid, nick_name=nick_name, avatar_url=avatar_url)
     db.session.add(u)
     db.session.commit()
+
+    # 新用户创建一份预置分类
+    seed_default_categories(openid)
     return u
+
+
+def seed_default_categories(user_id: str):
+    presets = [
+        ("expense", "餐饮", "food", 100),
+        ("expense", "交通", "traffic", 90),
+        ("expense", "购物", "shopping", 80),
+        ("expense", "住房", "house", 70),
+        ("income", "工资", "salary", 100),
+        ("income", "奖金", "bonus", 90),
+    ]
+    for t, name, icon, sort in presets:
+        existed = Category.query.filter_by(user_id=user_id, type=t, name=name).first()
+        if existed:
+            continue
+        db.session.add(Category(
+            user_id=user_id, type=t, name=name, icon=icon,
+            is_hidden=0, sort=sort, is_preset=1
+        ))
+    db.session.commit()
+
+
+def list_categories(user_id: str, type_=None, include_hidden=False):
+    q = Category.query.filter_by(user_id=user_id)
+    if type_ in ("income", "expense"):
+        q = q.filter_by(type=type_)
+    if not include_hidden:
+        q = q.filter_by(is_hidden=0)
+    return q.order_by(Category.sort.desc(), Category.id.desc()).all()
+
+
+def add_record(user_id: str, type: str, amount_cent: int, category_id: int,
+               occur_at: str, note=None, category_name_snapshot=None):
+    # occur_at 支持 "YYYY-MM-DD HH:MM:SS" 或 ISO
+    dt = _parse_dt(occur_at)
+
+    r = Record(
+        user_id=user_id,
+        type=type,
+        amount_cent=amount_cent,
+        category_id=category_id,
+        category_name_snapshot=category_name_snapshot,
+        note=note,
+        occur_at=dt,
+    )
+    db.session.add(r)
+    db.session.commit()
+    return r
+
+
+def list_records(user_id: str, month: str = None, page: int = 1, page_size: int = 20):
+    q = Record.query.filter_by(user_id=user_id)
+    if month:
+        # month: "YYYY-MM"
+        start = datetime.strptime(month + "-01", "%Y-%m-%d")
+        # 简单算下月1号
+        if start.month == 12:
+            end = datetime(start.year + 1, 1, 1)
+        else:
+            end = datetime(start.year, start.month + 1, 1)
+        q = q.filter(Record.occur_at >= start, Record.occur_at < end)
+
+    q = q.order_by(Record.occur_at.desc(), Record.id.desc())
+    items = q.offset((page - 1) * page_size).limit(page_size).all()
+    total = q.count()
+    return items, total
+
+
+def month_summary(user_id: str, month: str):
+    # 返回当月收入/支出汇总（分）
+    from sqlalchemy import func, case
+    start = datetime.strptime(month + "-01", "%Y-%m-%d")
+    if start.month == 12:
+        end = datetime(start.year + 1, 1, 1)
+    else:
+        end = datetime(start.year, start.month + 1, 1)
+
+    row = db.session.query(
+        func.sum(case((Record.type == "income", Record.amount_cent), else_=0)).label("income"),
+        func.sum(case((Record.type == "expense", Record.amount_cent), else_=0)).label("expense"),
+    ).filter(
+        Record.user_id == user_id,
+        Record.occur_at >= start,
+        Record.occur_at < end
+    ).first()
+
+    income = int(row.income or 0)
+    expense = int(row.expense or 0)
+    return {"month": month, "income_cent": income, "expense_cent": expense, "balance_cent": income - expense}
+
+
+def _parse_dt(s: str) -> datetime:
+    s = (s or "").strip()
+    # 兼容 "2026-02-13 12:00:00"
+    try:
+        return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    # 兼容 "2026-02-13"
+    try:
+        return datetime.strptime(s, "%Y-%m-%d")
+    except Exception:
+        pass
+    # 兼容 ISO
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        raise ValueError("occur_at 格式不正确")
