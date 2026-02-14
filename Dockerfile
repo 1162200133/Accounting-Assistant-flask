@@ -6,7 +6,9 @@ FROM docker.m.daocloud.io/library/python:3.10-slim
 # 1) 证书 + 基础工具（Debian系用 apt-get，不是 apk）
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
 
 # 2) 容器默认时区为UTC，如需使用上海时间可启用（可选）
 # ENV TZ=Asia/Shanghai

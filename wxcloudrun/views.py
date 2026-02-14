@@ -290,7 +290,8 @@ def wxlogin():
         return make_err_response('缺少code')
     if not WX_APPID or not WX_SECRET:
         return make_err_response('服务端未配置WX_APPID/WX_SECRET')
-
+    s = requests.Session()
+    s.trust_env = False # 避免走代理（如果服务器环境配置了 http_proxy 之类的环境变量）
     # code -> openid
     resp = requests.get(
         'https://api.weixin.qq.com/sns/jscode2session',
