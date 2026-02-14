@@ -11,6 +11,7 @@ from wxcloudrun.dao import (
     get_or_create_user_by_openid,
     list_categories,
     add_record,
+    add_category, 
     list_records,
     month_summary,
     seed_default_categories
@@ -88,6 +89,47 @@ def categories_get():
 
     return make_succ_response(data)
 
+@app.route('/api/categories', methods=['POST'])
+def categories_add():
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    params = request.get_json() or {}
+    type_ = params.get("type")
+    name = params.get("name")
+    icon = params.get("icon")
+    color = params.get("color")
+    sort = params.get("sort", 0)
+    is_hidden = params.get("is_hidden", 0)
+
+    if not type_:
+        return make_err_response("缺少 type（income/expense）")
+    if not name:
+        return make_err_response("缺少 name（分类名称）")
+
+    try:
+        c = add_category(
+            user_id=user_id,
+            type_=type_,
+            name=name,
+            icon=icon,
+            color=color,
+            sort=sort,
+            is_hidden=is_hidden
+        )
+    except Exception as e:
+        return make_err_response(str(e))
+
+    return make_succ_response({
+        "id": c.id,
+        "type": c.type,
+        "name": c.name,
+        "icon": c.icon,
+        "color": getattr(c, "color", None),
+        "is_hidden": c.is_hidden,
+        "sort": c.sort
+    })
 
 @app.route('/api/records', methods=['POST'])
 def records_add():

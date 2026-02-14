@@ -3,6 +3,35 @@ from datetime import datetime
 from wxcloudrun import db
 from wxcloudrun.model import User, Category, Record
 
+def add_category(user_id: str, type_: str, name: str, icon=None, color=None, sort: int = 0, is_hidden: int = 0):
+    """
+    新增分类（同一用户下 user_id + type + name 唯一）
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("分类名称不能为空")
+
+    if type_ not in ("income", "expense"):
+        raise ValueError("type 只能是 income 或 expense")
+
+    existed = Category.query.filter_by(user_id=user_id, type=type_, name=name).first()
+    if existed:
+        raise ValueError("该分类已存在")
+
+    c = Category(
+        user_id=user_id,
+        type=type_,
+        name=name,
+        icon=icon,
+        color=color,
+        sort=int(sort or 0),
+        is_hidden=int(is_hidden or 0),
+        is_preset=0
+    )
+    db.session.add(c)
+    db.session.commit()
+    return c
+
 def get_or_create_user_by_openid(openid: str, nick_name=None, avatar_url=None) -> User:
     u = User.query.filter_by(user_id=openid).first()
     if u:
