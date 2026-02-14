@@ -1,7 +1,8 @@
 # wxcloudrun/dao.py
-from datetime import datetime
+from datetime import datetime, timedelta
 from wxcloudrun import db
 from wxcloudrun.model import User, Category, Record
+from sqlalchemy import func, case
 
 def add_category(user_id: str, type_: str, name: str, icon=None, color=None, sort: int = 0, is_hidden: int = 0):
     """
@@ -111,12 +112,15 @@ def add_record(user_id: str, type: str, amount_cent: int, category_id: int,
     return r
 
 
-def list_records(user_id: str, month: str = None, page: int = 1, page_size: int = 20):
+def list_records(user_id: str, month: str = None, day: str = None, page: int = 1, page_size: int = 20):
     q = Record.query.filter_by(user_id=user_id)
-    if month:
-        # month: "YYYY-MM"
+
+    if day:
+        start = datetime.strptime(day, "%Y-%m-%d")
+        end = start.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        q = q.filter(Record.occur_at >= start, Record.occur_at < end)
+    elif month:
         start = datetime.strptime(month + "-01", "%Y-%m-%d")
-        # 简单算下月1号
         if start.month == 12:
             end = datetime(start.year + 1, 1, 1)
         else:
@@ -128,7 +132,68 @@ def list_records(user_id: str, month: str = None, page: int = 1, page_size: int 
     total = q.count()
     return items, total
 
+def calendar_summary(user_id: str, month: str):
+    """
+    返回当月每天的收入/支出汇总，用于日历标记
+    """
+    from sqlalchemy import func, case
 
+    start = datetime.strptime(month + "-01", "%Y-%m-%d")
+    if start.month == 12:
+        end = datetime(start.year + 1, 1, 1)
+    else:
+        end = datetime(start.year, start.month + 1, 1)
+
+    rows = db.session.query(
+        func.date(Record.occur_at).label("d"),
+        func.count(Record.id).label("cnt"),
+        func.sum(case((Record.type == "income", Record.amount_cent), else_=0)).label("income"),
+        func.sum(case((Record.type == "expense", Record.amount_cent), else_=0)).label("expense"),
+    ).filter(
+        Record.user_id == user_id,
+        Record.occur_at >= start,
+        Record.occur_at < end
+    ).group_by(func.date(Record.occur_at)).all()
+
+    out = []
+    for r in rows:
+        out.append({
+            "day": r.d.strftime("%Y-%m-%d"),
+            "count": int(r.cnt or 0),
+            "income_cent": int(r.income or 0),
+            "expense_cent": int(r.expense or 0),
+        })
+    return {"month": month, "days": out}
+
+def day_summary(user_id: str, day: str):
+    """
+    返回某天收入/支出汇总（单位：cent）
+    """
+    start = datetime.strptime(day, "%Y-%m-%d")
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+
+    row = db.session.query(
+        func.count(Record.id).label("cnt"),
+        func.sum(case((Record.type == "income", Record.amount_cent), else_=0)).label("income"),
+        func.sum(case((Record.type == "expense", Record.amount_cent), else_=0)).label("expense"),
+    ).filter(
+        Record.user_id == user_id,
+        Record.occur_at >= start,
+        Record.occur_at < end
+    ).first()
+
+    cnt = int(row.cnt or 0)
+    income = int(row.income or 0)
+    expense = int(row.expense or 0)
+    return {
+        "day": day,
+        "count": cnt,
+        "income_cent": income,
+        "expense_cent": expense,
+        "net_cent": income - expense
+    }
+    
 def month_summary(user_id: str, month: str):
     # 返回当月收入/支出汇总（分）
     from sqlalchemy import func, case

@@ -8,6 +8,8 @@ from wxcloudrun.jwt_utils import create_token,decode_token
 from wxcloudrun.model import User 
 
 from wxcloudrun.dao import (
+    calendar_summary,
+    day_summary,
     get_or_create_user_by_openid,
     list_categories,
     add_record,
@@ -161,10 +163,11 @@ def records_list():
         return make_err_response(err)
 
     month = request.args.get("month")  # "YYYY-MM"
+    day = request.args.get("day")  # "YYYY-MM-DD"
     page = int(request.args.get("page", "1"))
     page_size = int(request.args.get("page_size", "20"))
 
-    items, total = list_records(user_id, month=month, page=page, page_size=page_size)
+    items, total = list_records(user_id, month=month, day=day, page=page, page_size=page_size)
     data = []
     for r in items:
         data.append({
@@ -178,6 +181,18 @@ def records_list():
         })
     return make_succ_response({"items": data, "total": total, "page": page, "page_size": page_size})
 
+@app.route('/api/stats/calendar', methods=['GET'])
+def stats_calendar():
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    month = request.args.get("month")
+    if not month:
+        return make_err_response("缺少 month，格式 YYYY-MM")
+
+    return make_succ_response(calendar_summary(user_id, month))
+
 @app.route('/api/stats/month', methods=['GET'])
 def stats_month():
     user_id, err = _current_user_id()
@@ -189,6 +204,18 @@ def stats_month():
         return make_err_response("缺少 month，格式 YYYY-MM")
 
     return make_succ_response(month_summary(user_id, month))
+
+@app.route('/api/stats/day', methods=['GET'])
+def stats_day():
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    day = request.args.get("day")
+    if not day:
+        return make_err_response("缺少 day，格式 YYYY-MM-DD")
+
+    return make_succ_response(day_summary(user_id, day))
 
 @app.route('/api/wxlogin', methods=['POST'])
 def wxlogin():
