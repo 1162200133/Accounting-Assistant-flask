@@ -4,6 +4,29 @@ from wxcloudrun import db
 from wxcloudrun.model import User, Category, Record
 from sqlalchemy import func, case
 
+def get_record_by_id(user_id: str, rid: int):
+    return Record.query.filter_by(user_id=user_id, id=rid).first()
+
+def update_record(user_id: str, rid: int, **fields):
+    r = get_record_by_id(user_id, rid)
+    if not r:
+        raise ValueError("记录不存在")
+
+    allow = {"type", "amount_cent", "category_id", "note", "occur_at", "category_name_snapshot"}
+    for k, v in fields.items():
+        if k in allow and v is not None:
+            setattr(r, k, v)
+
+    db.session.commit()
+    return r
+
+def delete_record(user_id: str, rid: int):
+    r = get_record_by_id(user_id, rid)
+    if not r:
+        raise ValueError("记录不存在")
+    db.session.delete(r)
+    db.session.commit()
+    return True
 def add_category(user_id: str, type_: str, name: str, icon=None, color=None, sort: int = 0, is_hidden: int = 0):
     """
     新增分类（同一用户下 user_id + type + name 唯一）

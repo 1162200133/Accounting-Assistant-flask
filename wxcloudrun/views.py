@@ -10,13 +10,16 @@ from wxcloudrun.model import User
 from wxcloudrun.dao import (
     calendar_summary,
     day_summary,
+    delete_record,
     get_or_create_user_by_openid,
+    get_record_by_id,
     list_categories,
     add_record,
     add_category, 
     list_records,
     month_summary,
-    seed_default_categories
+    seed_default_categories,
+    update_record
 )
 
 
@@ -181,6 +184,65 @@ def records_list():
         })
     return make_succ_response({"items": data, "total": total, "page": page, "page_size": page_size})
 
+@app.route('/api/records/<int:rid>', methods=['GET'])
+def record_detail(rid):
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    r = get_record_by_id(user_id, rid)
+    if not r:
+        return make_err_response("记录不存在")
+
+    return make_succ_response({
+        "id": r.id,
+        "type": r.type,
+        "amount_cent": r.amount_cent,
+        "category_id": r.category_id,
+        "category_name_snapshot": r.category_name_snapshot,
+        "note": r.note or "",
+        "occur_at": r.occur_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "created_at", None) else None,
+        "updated_at": r.updated_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "updated_at", None) else None,
+    })
+
+@app.route('/api/records/<int:rid>', methods=['PUT'])
+def record_update(rid):
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    params = request.get_json() or {}
+
+    # 可改字段：type / amount_cent / category_id / note / occur_at / category_name_snapshot
+    try:
+        r = update_record(
+            user_id, rid,
+            type=params.get("type"),
+            amount_cent=int(params["amount_cent"]) if "amount_cent" in params else None,
+            category_id=int(params["category_id"]) if "category_id" in params else None,
+            note=params.get("note"),
+            occur_at=params.get("occur_at"),
+            category_name_snapshot=params.get("category_name_snapshot"),
+        )
+    except Exception as e:
+        return make_err_response(str(e))
+
+    return make_succ_response({"id": r.id})
+
+@app.route('/api/records/<int:rid>', methods=['DELETE'])
+def record_delete(rid):
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    try:
+        delete_record(user_id, rid)
+    except Exception as e:
+        return make_err_response(str(e))
+
+    return make_succ_response({"id": rid})
+
 @app.route('/api/stats/calendar', methods=['GET'])
 def stats_calendar():
     user_id, err = _current_user_id()
@@ -263,6 +325,24 @@ def wxlogin():
         "login_type": "wx"
     }, msg='登录成功')
     
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    """
+    JWT 是无状态的，前端删除 token 即可视为退出。
+    这里做一次 token 校验，仅用于返回统一格式。
+    """
+    token = _get_token()
+    if not token:
+        # 没 token 也算成功（已经退出）
+        return make_succ_response({"msg": "已退出登录"})
+
+    try:
+        decode_token(token)
+    except Exception:
+        # token 无效也视为已退出
+        return make_succ_response({"msg": "已退出登录"})
+
+    return make_succ_response({"msg": "已退出登录"})
 
 @app.route('/api/whoami', methods=['GET'])
 def whoami():
