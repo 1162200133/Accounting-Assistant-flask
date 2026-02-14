@@ -301,6 +301,7 @@ def wxlogin():
             'js_code': code,
             'grant_type': 'authorization_code'
         },
+        verify=False,
         timeout=8
     )
     data = resp.json() if resp is not None else {}
