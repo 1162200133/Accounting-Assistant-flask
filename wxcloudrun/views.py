@@ -162,6 +162,7 @@ def category_get_one(cid):
     })
 
 
+
 @app.route('/api/categories/<int:cid>', methods=['PUT'])
 def category_update(cid):
     user_id, err = _current_user_id()
@@ -169,12 +170,52 @@ def category_update(cid):
         return make_err_response(err)
 
     params = request.get_json() or {}
+
+    # 前端可能传 type / type_，这里都兼容
+    req_type = params.get("type")
+    if req_type is None:
+        req_type = params.get("type_")
+
+    req_name = params.get("name")
+    if isinstance(req_name, str):
+        req_name = req_name.strip()
+
+    confirm_sync = int(params.get("confirm_sync") or 0)  # 0/1
+
+    # 先取旧分类，用于判断是否需要提示
+    try:
+        c0 = get_category(user_id, cid)
+    except Exception as e:
+        return make_err_response(str(e))
+
+    old_name = c0.name
+    old_type = c0.type
+
+    # 判断“是否发生关键变更”（改名 / 改类型）
+    name_changed = (req_name is not None and req_name != old_name)
+    type_changed = (req_type is not None and req_type != old_type)
+
+    # 如果关键变更且有关联记录，且未确认，则返回 need_confirm
+    if (name_changed or type_changed) and not confirm_sync:
+        from wxcloudrun.dao import count_records_by_category
+        cnt = count_records_by_category(user_id, cid)
+        if cnt > 0:
+            return make_succ_response({
+                "need_confirm": True,
+                "related_record_count": cnt,
+                "old": {"name": old_name, "type": old_type},
+                "new": {"name": req_name if req_name is not None else old_name,
+                        "type": req_type if req_type is not None else old_type},
+                "tip": f"该分类已被 {cnt} 条记录使用。继续保存将同步更新这些记录的分类名称/类型，是否继续？"
+            })
+
+    # 真正更新分类
     try:
         c = update_category(
             user_id=user_id,
             cid=cid,
-            type_=params.get("type"), 
-            name=params.get("name"),
+            type_=req_type,              
+            name=req_name,
             icon=params.get("icon"),
             color=params.get("color"),
             sort=params.get("sort"),
@@ -182,6 +223,16 @@ def category_update(cid):
         )
     except Exception as e:
         return make_err_response(str(e))
+
+    # 如果确认同步，并且确实发生关键变更：同步记录表
+    if confirm_sync and (name_changed or type_changed):
+        from wxcloudrun.dao import sync_records_for_category
+        sync_records_for_category(
+            user_id=user_id,
+            cid=cid,
+            new_name=req_name if name_changed else None,
+            new_type=req_type if type_changed else None
+        )
 
     return make_succ_response({
         "id": c.id,
@@ -191,7 +242,8 @@ def category_update(cid):
         "color": getattr(c, "color", None),
         "is_hidden": c.is_hidden,
         "sort": c.sort,
-        "is_preset": getattr(c, "is_preset", 0)
+        "is_preset": getattr(c, "is_preset", 0),
+        "synced": bool(confirm_sync and (name_changed or type_changed))
     })
 
 

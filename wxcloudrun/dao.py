@@ -4,6 +4,34 @@ from wxcloudrun import db
 from wxcloudrun.model import User, Category, Record
 from sqlalchemy import func, case
 
+def count_records_by_category(user_id: str, cid: int) -> int:
+    return Record.query.filter_by(user_id=user_id, category_id=cid).count()
+
+
+def sync_records_for_category(user_id: str, cid: int, new_name: str = None, new_type: str = None) -> int:
+    """
+    同步更新所有引用该分类的记录：
+    - category_name_snapshot 同步为 new_name
+    - type 同步为 new_type（可选，建议在分类 type 变更时同步，避免详情页按 type 拉分类找不到）
+    返回：影响行数
+    """
+    update_fields = {}
+    if new_name is not None:
+        update_fields["category_name_snapshot"] = new_name
+    if new_type is not None:
+        if new_type not in ("income", "expense"):
+            raise ValueError("new_type 只能是 income 或 expense")
+        update_fields["type"] = new_type
+
+    if not update_fields:
+        return 0
+
+    n = Record.query.filter_by(user_id=user_id, category_id=cid).update(
+        update_fields, synchronize_session=False
+    )
+    db.session.commit()
+    return int(n or 0)
+
 def get_record_by_id(user_id: str, rid: int):
     return Record.query.filter_by(user_id=user_id, id=rid).first()
 
