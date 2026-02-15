@@ -20,6 +20,7 @@ from wxcloudrun.dao import (
     add_category, 
     list_records,
     month_summary,
+    restore_record,
     seed_default_categories,
     update_category,
     update_record
@@ -259,6 +260,19 @@ def category_delete(cid):
         return make_err_response(str(e))
 
     return make_succ_response({"ok": True})
+
+@app.route('/api/records/<int:rid>/restore', methods=['POST'])
+def record_restore(rid):
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    try:
+        r = restore_record(user_id, rid)
+    except Exception as e:
+        return make_err_response(str(e))
+
+    return make_succ_response({"id": r.id, "restored": True})
 
 
 @app.route('/api/records', methods=['POST'])

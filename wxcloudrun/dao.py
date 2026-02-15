@@ -62,6 +62,19 @@ def delete_record(user_id: str, rid: int):
     db.session.commit()
     return True
 
+def restore_record(user_id: str, rid: int):
+    """
+    恢复被隐藏(软删除)的记录：is_hidden=0
+    """
+    r = Record.query.filter_by(user_id=user_id, id=rid).first()
+    if not r:
+        raise ValueError("记录不存在")
+
+    # 如果你后面把 get_record_by_id 默认过滤 is_hidden=0，这里要单独查全量，所以直接 query
+    r.is_hidden = 0
+    db.session.commit()
+    return r
+
 
 def add_category(user_id: str, type_: str, name: str, icon=None, color=None, sort: int = 0, is_hidden: int = 0):
     """
