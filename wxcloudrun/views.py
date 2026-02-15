@@ -297,29 +297,22 @@ def records_list():
     page_size = int(request.args.get("page_size", "20"))
 
     items, total = list_records(user_id, month=month, day=day, page=page, page_size=page_size)
+
     data = []
-    for r in items:
-        # 查分类（当前用户自己的分类）
-        c = list_categories(user_id, type_=None, include_hidden=True)
-        color = None
-
-        for cat in c:
-            if cat.id == r.category_id:
-                color = getattr(cat, "color", None)
-                break
-
+    for r, category_color in items:
         data.append({
             "id": r.id,
             "type": r.type,
             "amount_cent": r.amount_cent,
             "category_id": r.category_id,
             "category_name_snapshot": r.category_name_snapshot,
-            "category_color": color,  
+            "category_color": category_color,  # ✅ 新增
             "note": r.note,
             "occur_at": r.occur_at.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
     return make_succ_response({"items": data, "total": total, "page": page, "page_size": page_size})
+
 
 @app.route('/api/records/<int:rid>', methods=['GET'])
 def record_detail(rid):
@@ -393,7 +386,36 @@ def record_restore(rid):
 
     return make_succ_response({"id": r.id, "restored": True})
 
+@app.route('/api/records/recycle', methods=['GET'])
+def records_recycle_list():
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
 
+    page = int(request.args.get("page", "1"))
+    page_size = int(request.args.get("page_size", "20"))
+
+    items, total = list_records(
+        user_id=user_id,
+        page=page,
+        page_size=page_size,
+        only_hidden=True
+    )
+
+    data = []
+    for r, category_color in items:
+        data.append({
+            "id": r.id,
+            "type": r.type,
+            "amount_cent": r.amount_cent,
+            "category_id": r.category_id,
+            "category_name_snapshot": r.category_name_snapshot,
+            "category_color": category_color,  # ✅ 新增
+            "note": r.note,
+            "occur_at": r.occur_at.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+    return make_succ_response({"items": data, "total": total, "page": page, "page_size": page_size})
 
 @app.route('/api/stats/calendar', methods=['GET'])
 def stats_calendar():

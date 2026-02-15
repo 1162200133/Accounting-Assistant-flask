@@ -256,9 +256,27 @@ def add_record(user_id: str, type: str, amount_cent: int, category_id: int,
     return r
 
 
-def list_records(user_id: str, month: str = None, day: str = None, page: int = 1, page_size: int = 20):
-    q = Record.query.filter_by(user_id=user_id, is_hidden=0)
+from datetime import datetime, timedelta
 
+def list_records(user_id: str, month: str = None, day: str = None,
+                 page: int = 1, page_size: int = 20,
+                 only_hidden: bool = False):
+    """
+    返回：items, total
+    items: [(Record, category_color), ...]
+    """
+    q = db.session.query(
+        Record,
+        Category.color.label("category_color")
+    ).outerjoin(
+        Category,
+        (Category.id == Record.category_id) & (Category.user_id == user_id)
+    ).filter(Record.user_id == user_id)
+
+    # ✅ 回收站 / 正常列表
+    q = q.filter(Record.is_hidden == (1 if only_hidden else 0))
+
+    # ✅ 日期过滤
     if day:
         start = datetime.strptime(day, "%Y-%m-%d")
         end = start.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
@@ -272,9 +290,11 @@ def list_records(user_id: str, month: str = None, day: str = None, page: int = 1
         q = q.filter(Record.occur_at >= start, Record.occur_at < end)
 
     q = q.order_by(Record.occur_at.desc(), Record.id.desc())
-    items = q.offset((page - 1) * page_size).limit(page_size).all()
+
     total = q.count()
+    items = q.offset((page - 1) * page_size).limit(page_size).all()
     return items, total
+
 
 def calendar_summary(user_id: str, month: str):
     """

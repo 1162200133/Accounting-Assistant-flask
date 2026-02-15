@@ -3,7 +3,8 @@
     {
       "name": "accounting-assistant-flask",
       "domain": "",
-      "ip": ""
+      "ip": "",
+      "containerId": "3122b3cc2968fcd5e58a4461cd3a12ae9ef4dd0293bed956b255e2a0e4f4f09b"
     }
   ],
   "config": {
