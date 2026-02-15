@@ -261,19 +261,6 @@ def category_delete(cid):
 
     return make_succ_response({"ok": True})
 
-@app.route('/api/records/<int:rid>/restore', methods=['POST'])
-def record_restore(rid):
-    user_id, err = _current_user_id()
-    if err:
-        return make_err_response(err)
-
-    try:
-        r = restore_record(user_id, rid)
-    except Exception as e:
-        return make_err_response(str(e))
-
-    return make_succ_response({"id": r.id, "restored": True})
-
 
 @app.route('/api/records', methods=['POST'])
 def records_add():
@@ -399,13 +386,14 @@ def record_restore(rid):
     if err:
         return make_err_response(err)
 
-    r = get_record_by_id(user_id, rid, include_hidden=True)
-    if not r:
-        return make_err_response("记录不存在")
+    try:
+        r = restore_record(user_id, rid)
+    except Exception as e:
+        return make_err_response(str(e))
 
-    r.is_hidden = 0
-    db.session.commit()
     return make_succ_response({"id": r.id, "restored": True})
+
+
 
 @app.route('/api/stats/calendar', methods=['GET'])
 def stats_calendar():
