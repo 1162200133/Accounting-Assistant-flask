@@ -10,7 +10,9 @@ from wxcloudrun.model import User
 from wxcloudrun.dao import (
     calendar_summary,
     day_summary,
+    delete_category,
     delete_record,
+    get_category,
     get_or_create_user_by_openid,
     get_record_by_id,
     list_categories,
@@ -19,6 +21,7 @@ from wxcloudrun.dao import (
     list_records,
     month_summary,
     seed_default_categories,
+    update_category,
     update_record
 )
 
@@ -136,6 +139,76 @@ def categories_add():
         "sort": c.sort
     })
 
+@app.route('/api/categories/<int:cid>', methods=['GET'])
+def category_get_one(cid):
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    try:
+        c = get_category(user_id, cid)
+    except Exception as e:
+        return make_err_response(str(e))
+
+    return make_succ_response({
+        "id": c.id,
+        "type": c.type,
+        "name": c.name,
+        "icon": c.icon,
+        "color": getattr(c, "color", None),
+        "is_hidden": c.is_hidden,
+        "sort": c.sort,
+        "is_preset": getattr(c, "is_preset", 0)
+    })
+
+
+@app.route('/api/categories/<int:cid>', methods=['PUT'])
+def category_update(cid):
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    params = request.get_json() or {}
+    try:
+        c = update_category(
+            user_id=user_id,
+            cid=cid,
+            type_=params.get("type"), 
+            name=params.get("name"),
+            icon=params.get("icon"),
+            color=params.get("color"),
+            sort=params.get("sort"),
+            is_hidden=params.get("is_hidden")
+        )
+    except Exception as e:
+        return make_err_response(str(e))
+
+    return make_succ_response({
+        "id": c.id,
+        "type": c.type,
+        "name": c.name,
+        "icon": c.icon,
+        "color": getattr(c, "color", None),
+        "is_hidden": c.is_hidden,
+        "sort": c.sort,
+        "is_preset": getattr(c, "is_preset", 0)
+    })
+
+
+@app.route('/api/categories/<int:cid>', methods=['DELETE'])
+def category_delete(cid):
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    try:
+        delete_category(user_id, cid)
+    except Exception as e:
+        return make_err_response(str(e))
+
+    return make_succ_response({"ok": True})
+
+
 @app.route('/api/records', methods=['POST'])
 def records_add():
     user_id, err = _current_user_id()
@@ -173,15 +246,26 @@ def records_list():
     items, total = list_records(user_id, month=month, day=day, page=page, page_size=page_size)
     data = []
     for r in items:
+        # 查分类（当前用户自己的分类）
+        c = list_categories(user_id, type_=None, include_hidden=True)
+        color = None
+
+        for cat in c:
+            if cat.id == r.category_id:
+                color = getattr(cat, "color", None)
+                break
+
         data.append({
             "id": r.id,
             "type": r.type,
             "amount_cent": r.amount_cent,
             "category_id": r.category_id,
             "category_name_snapshot": r.category_name_snapshot,
+            "category_color": color,  
             "note": r.note,
             "occur_at": r.occur_at.strftime("%Y-%m-%d %H:%M:%S"),
         })
+
     return make_succ_response({"items": data, "total": total, "page": page, "page_size": page_size})
 
 @app.route('/api/records/<int:rid>', methods=['GET'])

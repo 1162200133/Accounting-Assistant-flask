@@ -27,6 +27,7 @@ def delete_record(user_id: str, rid: int):
     db.session.delete(r)
     db.session.commit()
     return True
+
 def add_category(user_id: str, type_: str, name: str, icon=None, color=None, sort: int = 0, is_hidden: int = 0):
     """
     新增分类（同一用户下 user_id + type + name 唯一）
@@ -55,6 +56,47 @@ def add_category(user_id: str, type_: str, name: str, icon=None, color=None, sor
     db.session.add(c)
     db.session.commit()
     return c
+
+def get_category(user_id: str, cid: int) -> Category:
+    c = Category.query.filter_by(id=cid, user_id=user_id).first()
+    if not c:
+        raise ValueError("分类不存在")
+    return c
+
+def update_category(user_id, cid, type_=None, name=None, icon=None, color=None, sort=None, is_hidden=None):
+    c = Category.query.filter_by(user_id=user_id, id=cid).first()
+    if not c:
+        raise Exception("分类不存在")
+
+    # type 更新（只允许 income / expense）
+    if type_ is not None:
+        if type_ not in ("income", "expense"):
+            raise Exception("type 只能是 income/expense")
+        c.type = type_
+
+    if name is not None:
+        c.name = name
+    if icon is not None:
+        c.icon = icon
+    if color is not None:
+        c.color = color
+    if sort is not None:
+        c.sort = int(sort)
+    if is_hidden is not None:
+        c.is_hidden = int(is_hidden)
+
+    db.session.commit()
+    return c
+
+
+def delete_category(user_id: str, cid: int):
+    c = get_category(user_id, cid)
+    # 预置分类：不允许删除（建议隐藏）
+    if int(getattr(c, "is_preset", 0) or 0) == 1:
+        raise ValueError("预置分类不允许删除，可选择隐藏")
+    # 软删除：改为隐藏，避免历史记录 category_id 失效
+    c.is_hidden = 1
+    db.session.commit()
 
 def get_or_create_user_by_openid(openid: str, nick_name=None, avatar_url=None) -> User:
     u = User.query.filter_by(user_id=openid).first()
@@ -88,23 +130,54 @@ def get_or_create_user_by_openid(openid: str, nick_name=None, avatar_url=None) -
 
 
 def seed_default_categories(user_id: str):
+    # ✅ 预置分类：补上默认颜色（你可以按自己UI风格调整）
     presets = [
-        ("expense", "餐饮", "food", 100),
-        ("expense", "交通", "traffic", 90),
-        ("expense", "购物", "shopping", 80),
-        ("expense", "住房", "house", 70),
-        ("income", "工资", "salary", 100),
-        ("income", "奖金", "bonus", 90),
+        # expense
+        ("expense", "餐饮", "food",     "#FF8A00", 100),
+        ("expense", "交通", "traffic",  "#2D7CFF", 90),
+        ("expense", "购物", "shopping", "#FF4D4F", 80),
+        ("expense", "住房", "house",    "#8B5CF6", 70),
+        # income
+        ("income",  "工资", "salary",   "#34C759", 100),
+        ("income",  "奖金", "bonus",    "#10B981", 90),
     ]
-    for t, name, icon, sort in presets:
+
+    changed = False
+
+    for t, name, icon, color, sort in presets:
         existed = Category.query.filter_by(user_id=user_id, type=t, name=name).first()
+
         if existed:
+            # ✅ 老用户：如果预置分类颜色为空，补齐（不覆盖用户自己设置过的颜色）
+            if (not getattr(existed, "color", None)) and color:
+                existed.color = color
+                changed = True
+            # 可选：icon 为空也补一下
+            if (not getattr(existed, "icon", None)) and icon:
+                existed.icon = icon
+                changed = True
+            # sort 为 0 时补一下（不强制覆盖）
+            if (getattr(existed, "sort", 0) or 0) == 0 and sort:
+                existed.sort = sort
+                changed = True
             continue
+
+        
         db.session.add(Category(
-            user_id=user_id, type=t, name=name, icon=icon,
-            is_hidden=0, sort=sort, is_preset=1
+            user_id=user_id,
+            type=t,
+            name=name,
+            icon=icon,
+            color=color,     
+            is_hidden=0,
+            sort=sort,
+            is_preset=1
         ))
-    db.session.commit()
+        changed = True
+
+    if changed:
+        db.session.commit()
+
 
 
 def list_categories(user_id: str, type_=None, include_hidden=False):
