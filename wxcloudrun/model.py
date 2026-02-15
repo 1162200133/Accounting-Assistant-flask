@@ -39,6 +39,7 @@ class Record(db.Model):
     category_name_snapshot = db.Column(db.String(30))
     note = db.Column(db.String(200))
     occur_at = db.Column(db.DateTime, nullable=False)
+    is_hidden = db.Column(db.SmallInteger, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

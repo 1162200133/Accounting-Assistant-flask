@@ -32,8 +32,12 @@ def sync_records_for_category(user_id: str, cid: int, new_name: str = None, new_
     db.session.commit()
     return int(n or 0)
 
-def get_record_by_id(user_id: str, rid: int):
-    return Record.query.filter_by(user_id=user_id, id=rid).first()
+def get_record_by_id(user_id: str, rid: int, include_hidden: bool = False):
+    q = Record.query.filter_by(user_id=user_id, id=rid)
+    if not include_hidden:
+        q = q.filter_by(is_hidden=0)
+    return q.first()
+
 
 def update_record(user_id: str, rid: int, **fields):
     r = get_record_by_id(user_id, rid)
@@ -52,9 +56,12 @@ def delete_record(user_id: str, rid: int):
     r = get_record_by_id(user_id, rid)
     if not r:
         raise ValueError("记录不存在")
-    db.session.delete(r)
+
+    # ✅ 软删除：仅隐藏
+    r.is_hidden = 1
     db.session.commit()
     return True
+
 
 def add_category(user_id: str, type_: str, name: str, icon=None, color=None, sort: int = 0, is_hidden: int = 0):
     """
@@ -237,7 +244,7 @@ def add_record(user_id: str, type: str, amount_cent: int, category_id: int,
 
 
 def list_records(user_id: str, month: str = None, day: str = None, page: int = 1, page_size: int = 20):
-    q = Record.query.filter_by(user_id=user_id)
+    q = Record.query.filter_by(user_id=user_id, is_hidden=0)
 
     if day:
         start = datetime.strptime(day, "%Y-%m-%d")
@@ -274,6 +281,7 @@ def calendar_summary(user_id: str, month: str):
         func.sum(case((Record.type == "income", Record.amount_cent), else_=0)).label("income"),
         func.sum(case((Record.type == "expense", Record.amount_cent), else_=0)).label("expense"),
     ).filter(
+        Record.is_hidden == 0,
         Record.user_id == user_id,
         Record.occur_at >= start,
         Record.occur_at < end
@@ -302,6 +310,7 @@ def day_summary(user_id: str, day: str):
         func.sum(case((Record.type == "income", Record.amount_cent), else_=0)).label("income"),
         func.sum(case((Record.type == "expense", Record.amount_cent), else_=0)).label("expense"),
     ).filter(
+        Record.is_hidden == 0,
         Record.user_id == user_id,
         Record.occur_at >= start,
         Record.occur_at < end
@@ -331,6 +340,7 @@ def month_summary(user_id: str, month: str):
         func.sum(case((Record.type == "income", Record.amount_cent), else_=0)).label("income"),
         func.sum(case((Record.type == "expense", Record.amount_cent), else_=0)).label("expense"),
     ).filter(
+        Record.is_hidden == 0,
         Record.user_id == user_id,
         Record.occur_at >= start,
         Record.occur_at < end

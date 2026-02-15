@@ -379,6 +379,20 @@ def record_delete(rid):
 
     return make_succ_response({"id": rid})
 
+@app.route('/api/records/<int:rid>/restore', methods=['POST'])
+def record_restore(rid):
+    user_id, err = _current_user_id()
+    if err:
+        return make_err_response(err)
+
+    r = get_record_by_id(user_id, rid, include_hidden=True)
+    if not r:
+        return make_err_response("记录不存在")
+
+    r.is_hidden = 0
+    db.session.commit()
+    return make_succ_response({"id": r.id, "restored": True})
+
 @app.route('/api/stats/calendar', methods=['GET'])
 def stats_calendar():
     user_id, err = _current_user_id()
