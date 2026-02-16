@@ -5,7 +5,7 @@ from flask import request
 from run import app
 from wxcloudrun.response import make_succ_response, make_err_response, make_login_response
 from wxcloudrun.jwt_utils import create_token,decode_token
-from wxcloudrun.model import User 
+from wxcloudrun.model import User,Receipt
 
 from wxcloudrun.dao import (
     calendar_summary,
@@ -23,7 +23,8 @@ from wxcloudrun.dao import (
     restore_record,
     seed_default_categories,
     update_category,
-    update_record
+    update_record,
+    add_record_with_receipts
 )
 
 
@@ -57,6 +58,7 @@ def _current_user_id():
     if not uid:
         return None, "token缺少user_id"
     return uid, None
+
 
 
 @app.route('/api/categories', methods=['GET'])
@@ -274,7 +276,12 @@ def records_add():
         if k not in params:
             return make_err_response(f'缺少 {k}')
 
-    r = add_record(
+    # ✅ receipts：小程序上传成功后带过来
+    receipts = params.get("receipts") or []
+    if not isinstance(receipts, list):
+        return make_err_response("receipts 必须是数组")
+
+    r = add_record_with_receipts(
         user_id=user_id,
         type=params['type'],
         amount_cent=int(params['amount_cent']),
@@ -282,6 +289,7 @@ def records_add():
         note=params.get('note'),
         occur_at=params['occur_at'],
         category_name_snapshot=params.get('category_name_snapshot'),
+        receipts=receipts
     )
     return make_succ_response({'id': r.id})
 
@@ -323,6 +331,8 @@ def record_detail(rid):
     r = get_record_by_id(user_id, rid)
     if not r:
         return make_err_response("记录不存在")
+    
+    receipts = Receipt.query.filter_by(user_id=user_id, record_id=rid).order_by(Receipt.id.asc()).all()
 
     return make_succ_response({
         "id": r.id,
@@ -334,6 +344,14 @@ def record_detail(rid):
         "occur_at": r.occur_at.strftime("%Y-%m-%d %H:%M:%S"),
         "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "created_at", None) else None,
         "updated_at": r.updated_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "updated_at", None) else None,
+        
+         "receipts": [{
+            "id": x.id,
+            "file_id": x.file_id,
+            "mime_type": x.mime_type,
+            "size_bytes": int(x.size_bytes or 0) if x.size_bytes is not None else None,
+            "created_at": x.created_at.strftime("%Y-%m-%d %H:%M:%S") if x.created_at else None,
+        } for x in receipts]
     })
 
 @app.route('/api/records/<int:rid>', methods=['PUT'])

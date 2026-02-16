@@ -1,12 +1,50 @@
 # wxcloudrun/dao.py
 from datetime import datetime, timedelta
 from wxcloudrun import db
-from wxcloudrun.model import User, Category, Record
+from wxcloudrun.model import User, Category, Record,Receipt
 from sqlalchemy import func, case
+
+def add_record_with_receipts(user_id: str, type: str, amount_cent: int, category_id: int,
+                             occur_at: str, note=None, category_name_snapshot=None,
+                             receipts=None):
+    """
+    receipts: list[dict] like:
+      [{"file_id":"cloud://xxx", "mime_type":"image/jpeg", "size_bytes":12345, "file_url":None}, ...]
+    """
+    dt = _parse_dt(occur_at)
+
+    r = Record(
+        user_id=user_id,
+        type=type,
+        amount_cent=amount_cent,
+        category_id=category_id,
+        category_name_snapshot=category_name_snapshot,
+        note=note,
+        occur_at=dt,
+    )
+
+    db.session.add(r)
+    db.session.flush()  # ✅ 拿到 r.id，但不提交
+
+    recs = receipts or []
+    for it in recs:
+        file_id = (it.get("file_id") or "").strip()
+        if not file_id:
+            continue
+        db.session.add(Receipt(
+            record_id=r.id,
+            user_id=user_id,
+            file_id=file_id,
+            mime_type=it.get("mime_type"),
+            size_bytes=it.get("size_bytes"),
+        ))
+
+    db.session.commit()
+    return r
+
 
 def count_records_by_category(user_id: str, cid: int) -> int:
     return Record.query.filter_by(user_id=user_id, category_id=cid).count()
-
 
 def sync_records_for_category(user_id: str, cid: int, new_name: str = None, new_type: str = None) -> int:
     """

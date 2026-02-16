@@ -53,3 +53,13 @@ class Budget(db.Model):
     alerted = db.Column(db.SmallInteger, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+class Receipt(db.Model):
+    __tablename__ = 'receipts'
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    record_id = db.Column(db.BigInteger, db.ForeignKey('records.id'), nullable=False)
+    user_id = db.Column(db.String(64), db.ForeignKey('users.user_id'), nullable=False)  # 冗余：便于权限校验
+    file_id = db.Column(db.String(255), nullable=False)     # fileID / 对象Key
+    mime_type = db.Column(db.String(50))                   # image/jpeg
+    size_bytes = db.Column(db.BigInteger)                  # 文件大小
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
