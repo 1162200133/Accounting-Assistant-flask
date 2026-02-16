@@ -4,6 +4,59 @@ from wxcloudrun import db
 from wxcloudrun.model import User, Category, Record,Receipt
 from sqlalchemy import func, case
 
+def sync_record_receipts(user_id: str, record_id: int, receipts: list):
+    """
+    receipts: [{file_id, mime_type?, size_bytes?}, ...]
+    规则：
+      - 以 file_id 为唯一标识
+      - DB 中不存在的 => 插入
+      - DB 中存在但不在本次 receipts 里 => 删除
+    """
+    # 1) 清洗输入：只保留有 file_id 的
+    cleaned = []
+    seen = set()
+    for it in receipts or []:
+        if not isinstance(it, dict):
+            continue
+        fid = (it.get("file_id") or "").strip()
+        if not fid or fid in seen:
+            continue
+        seen.add(fid)
+        cleaned.append({
+            "file_id": fid,
+            "mime_type": it.get("mime_type"),
+            "size_bytes": it.get("size_bytes"),
+        })
+
+    keep_ids = [x["file_id"] for x in cleaned]
+
+    # 2) 查当前 DB 已有的 receipts
+    existed = Receipt.query.filter_by(user_id=user_id, record_id=record_id).all()
+    existed_map = {r.file_id: r for r in existed}
+    existed_ids = set(existed_map.keys())
+    keep_set = set(keep_ids)
+
+    # 3) 需要删除的：DB 有但本次没保留
+    del_ids = existed_ids - keep_set
+    if del_ids:
+        Receipt.query.filter_by(user_id=user_id, record_id=record_id) \
+            .filter(Receipt.file_id.in_(list(del_ids))) \
+            .delete(synchronize_session=False)
+
+    # 4) 需要新增的：本次有但 DB 没有
+    add_ids = keep_set - existed_ids
+    for x in cleaned:
+        if x["file_id"] in add_ids:
+            db.session.add(Receipt(
+                record_id=record_id,
+                user_id=user_id,
+                file_id=x["file_id"],
+                mime_type=x.get("mime_type"),
+                size_bytes=x.get("size_bytes"),
+            ))
+
+    db.session.commit()
+    
 def add_record_with_receipts(user_id: str, type: str, amount_cent: int, category_id: int,
                              occur_at: str, note=None, category_name_snapshot=None,
                              receipts=None):

@@ -22,6 +22,7 @@ from wxcloudrun.dao import (
     month_summary,
     restore_record,
     seed_default_categories,
+    sync_record_receipts,
     update_category,
     update_record,
     add_record_with_receipts
@@ -373,10 +374,21 @@ def record_update(rid):
             occur_at=params.get("occur_at"),
             category_name_snapshot=params.get("category_name_snapshot"),
         )
+
+        # 同步凭证（可增可删）
+        receipts = params.get("receipts", None)
+        if receipts is not None:
+            if not isinstance(receipts, list):
+                return make_err_response("receipts 必须是数组")
+            sync_record_receipts(user_id=user_id, record_id=rid, receipts=receipts)
+
+
     except Exception as e:
         return make_err_response(str(e))
 
     return make_succ_response({"id": r.id})
+
+
 
 @app.route('/api/records/<int:rid>', methods=['DELETE'])
 def record_delete(rid):
